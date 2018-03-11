@@ -18,13 +18,13 @@ package com.tzutalin.dlibtest;
 
 import android.content.Context;
 import android.content.res.AssetManager;
-import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.media.Image;
@@ -45,7 +45,9 @@ import junit.framework.Assert;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Class that takes in preview frames and converts the image to Bitmaps to process with dlib lib.
@@ -53,7 +55,6 @@ import java.util.List;
 public class OnGetImageListener implements OnImageAvailableListener {
     private static final boolean SAVE_PREVIEW_BITMAP = false;
 
-    private static final int INPUT_SIZE = 224;
     private static final String TAG = "OnGetImageListener";
 
     private int mScreenRotation = 90;
@@ -70,7 +71,6 @@ public class OnGetImageListener implements OnImageAvailableListener {
 
     private Context mContext;
     private FaceDet mFaceDet;
-    private TrasparentTitleView mTransparentTitleView;
     private FloatingCameraWindow mWindow;
     private Paint mFaceLandmardkPaint;
 
@@ -80,7 +80,6 @@ public class OnGetImageListener implements OnImageAvailableListener {
             final TrasparentTitleView scoreView,
             final Handler handler) {
         this.mContext = context;
-        this.mTransparentTitleView = scoreView;
         this.mInferenceHandler = handler;
         mFaceDet = new FaceDet(Constants.getFaceShapeModelPath());
         mWindow = new FloatingCameraWindow(mContext);
@@ -106,17 +105,14 @@ public class OnGetImageListener implements OnImageAvailableListener {
     private void drawResizedBitmap(final Bitmap src, final Bitmap dst) {
 
         Display getOrient = ((WindowManager) mContext.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
-        int orientation = Configuration.ORIENTATION_UNDEFINED;
         Point point = new Point();
         getOrient.getSize(point);
         int screen_width = point.x;
         int screen_height = point.y;
         Log.d(TAG, String.format("screen size (%d,%d)", screen_width, screen_height));
         if (screen_width < screen_height) {
-            orientation = Configuration.ORIENTATION_PORTRAIT;
-            mScreenRotation = 90;
+            mScreenRotation = -90;
         } else {
-            orientation = Configuration.ORIENTATION_LANDSCAPE;
             mScreenRotation = 0;
         }
 
@@ -142,6 +138,127 @@ public class OnGetImageListener implements OnImageAvailableListener {
 
         final Canvas canvas = new Canvas(dst);
         canvas.drawBitmap(src, matrix, null);
+    }
+
+    class P {
+        P(int startIdx, int endIdx, float factor) {
+            this.startIdx = startIdx;
+            this.endIdx = endIdx;
+            this.factor = factor;
+        }
+
+        int startIdx;
+        int endIdx;
+        float factor;
+    }
+
+    // List of index pairs for interpolation describing the areas of eye lids. Format: [index1, index2, factor]
+    P[] right_lid_area = {/* top */
+            new P( 22, 42, 0.1f ),
+            new P(  22, 42, 0.5f ),
+            new P(  23, 43, 0.5f ),
+            new P(  24, 43, 0.6f ),
+            new P(  25, 44, 0.6f ),
+            new P( 26, 45, 0.7f ),
+                /* bottom*/
+            new P(  26, 45, 0.1f ),
+            new P( 25, 44, 0.2f ),
+            new P( 24, 43, 0.1f ),
+            new P( 23, 42, 0.2f )};
+
+
+    Point lerp(Point pt1, Point pt2, float s) {
+        Point result = new Point(
+                (int) (pt1.x * s + pt2.x * (1.0 - s)),
+                (int) (pt1.y * s + pt2.y * (1.0 - s)));
+        return result;
+    }
+
+    ArrayList<Point>  landmarks;
+
+    Point[] lerpLine(P[] lines) {
+        Point points[] = new Point[lines.length];
+
+        for (int i=0; i<lines.length; i++) {
+            P point = lines[i];
+
+            Point pt;
+            Point lerp1 = landmarks.get(point.startIdx);
+            Point lerp2 = landmarks.get(point.endIdx);
+
+            pt = lerp(lerp1, lerp2, point.factor);
+
+            points[i] = pt;
+        }
+        return points;
+    }
+
+    void drawClosedSpline(Canvas canvas, Point[] points) {
+        Path path = new Path();
+        path.moveTo(points[0].x, points[0].y);
+        for (int i = 1; i < points.length; i+=2)
+        {
+            Point pt1 =  points[i];
+            Point pt2 = points[(i+1)%points.length];
+            path.quadTo(pt1.x, pt1.y, pt2.x, pt2.y);
+        }
+        canvas.drawPath(path, mFaceLandmardkPaint);
+    }
+
+    static Map<Integer, Integer> symmetry() {
+        Map<Integer, Integer> map = new HashMap<>();
+        map.put(22, 21);
+        map.put(23, 20);
+        map.put(24, 19);
+        map.put(25, 18);
+        map.put(26, 17);
+        map.put(42, 39);
+        map.put(43, 38);
+        map.put(44, 37);
+        map.put(45, 36);
+        map.put(46, 41);
+        map.put(47, 40);
+        map.put(16, 0);
+        map.put(15, 1);
+        map.put(14, 2);
+        map.put(13, 3);
+        map.put(12, 4);
+        map.put(11, 5);
+        map.put(10, 6);
+        map.put(9, 7);
+        map.put(8, 6);
+        return map;
+    }
+
+    private Map<Integer, Integer> symmetry =  symmetry();
+
+    P[] mirror(P controlPoints[]) {
+        P[] result = new P[controlPoints.length];
+        for (int i=0; i< controlPoints.length; i++) {
+            P pt = controlPoints[i];
+            P outPt = new P(symmetry.get(pt.startIdx), symmetry.get(pt.endIdx), pt.factor);
+            result[i] = outPt;
+        }
+        return result;
+    }
+
+    /**
+     * Draws the areas of both eye lids
+     *
+     * ctx: the canvas context
+     */
+    void drawLids(Canvas canvas) {
+        Point[]  left_lid_points = lerpLine(mirror(right_lid_area));
+        Point[] right_lid_points = lerpLine(right_lid_area);
+
+        drawClosedSpline(canvas, left_lid_points);
+        drawClosedSpline(canvas, right_lid_points);
+
+        //drawControlPoints(ctx, left_lid_points);
+        //drawControlPoints(ctx, right_lid_points);
+
+        //drawArrows(ctx, left_lid_points);
+        //drawArrows(ctx, right_lid_points);
     }
 
     @Override
@@ -173,7 +290,7 @@ public class OnGetImageListener implements OnImageAvailableListener {
                 Log.d(TAG, String.format("Initializing at size %dx%d", mPreviewWdith, mPreviewHeight));
                 mRGBBytes = new int[mPreviewWdith * mPreviewHeight];
                 mRGBframeBitmap = Bitmap.createBitmap(mPreviewWdith, mPreviewHeight, Config.ARGB_8888);
-                mCroppedBitmap = Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Config.ARGB_8888);
+                mCroppedBitmap = Bitmap.createBitmap(600, 600, Config.ARGB_8888);
 
                 mYUVBytes = new byte[planes.length][];
                 for (int i = 0; i < planes.length; ++i) {
@@ -222,17 +339,13 @@ public class OnGetImageListener implements OnImageAvailableListener {
                     @Override
                     public void run() {
                         if (!new File(Constants.getFaceShapeModelPath()).exists()) {
-                            mTransparentTitleView.setText("Copying landmark model to " + Constants.getFaceShapeModelPath());
                             FileUtils.copyFileFromRawToOthers(mContext, R.raw.shape_predictor_68_face_landmarks, Constants.getFaceShapeModelPath());
                         }
 
-                        long startTime = System.currentTimeMillis();
                         List<VisionDetRet> results;
                         synchronized (OnGetImageListener.this) {
                             results = mFaceDet.detect(mCroppedBitmap);
                         }
-                        long endTime = System.currentTimeMillis();
-                        mTransparentTitleView.setText("Time cost: " + String.valueOf((endTime - startTime) / 1000f) + " sec");
                         // Draw on bitmap
                         if (results != null) {
                             for (final VisionDetRet ret : results) {
@@ -243,15 +356,18 @@ public class OnGetImageListener implements OnImageAvailableListener {
                                 bounds.right = (int) (ret.getRight() * resizeRatio);
                                 bounds.bottom = (int) (ret.getBottom() * resizeRatio);
                                 Canvas canvas = new Canvas(mCroppedBitmap);
-                                canvas.drawRect(bounds, mFaceLandmardkPaint);
+                                //canvas.drawRect(bounds, mFaceLandmardkPaint);
 
                                 // Draw landmark
-                                ArrayList<Point> landmarks = ret.getFaceLandmarks();
+                                landmarks = ret.getFaceLandmarks();
+                                /*
                                 for (Point point : landmarks) {
                                     int pointX = (int) (point.x * resizeRatio);
                                     int pointY = (int) (point.y * resizeRatio);
                                     canvas.drawCircle(pointX, pointY, 2, mFaceLandmardkPaint);
-                                }
+                                }*/
+
+                                drawLids(canvas);
                             }
                         }
 

@@ -74,30 +74,8 @@ public class FloatingCameraWindow {
             mScreenMaxHeight = display.getHeight();
         }
         // Default window size
-        mWindowWidth = mScreenMaxWidth / 2;
-        mWindowHeight = mScreenMaxHeight / 2;
-
-        mWindowWidth = mWindowWidth > 0 && mWindowWidth < mScreenMaxWidth ? mWindowWidth : mScreenMaxWidth;
-        mWindowHeight = mWindowHeight > 0 && mWindowHeight < mScreenMaxHeight ? mWindowHeight : mScreenMaxHeight;
-    }
-
-    public FloatingCameraWindow(Context context, int windowWidth, int windowHeight) {
-        this(context);
-
-        if (windowWidth < 0 || windowWidth > mScreenMaxWidth || windowHeight < 0 || windowHeight > mScreenMaxHeight) {
-            throw new IllegalArgumentException("Window size is illegal");
-        }
-
-        mScaleWidthRatio = (float) windowWidth / mWindowHeight;
-        mScaleHeightRatio = (float) windowHeight / mWindowHeight;
-
-        if (DEBUG) {
-            Log.d(TAG, "mScaleWidthRatio: " + mScaleWidthRatio);
-            Log.d(TAG, "mScaleHeightRatio: " + mScaleHeightRatio);
-        }
-
-        mWindowWidth = windowWidth;
-        mWindowHeight = windowHeight;
+        mWindowWidth = mScreenMaxWidth;
+        mWindowHeight = mScreenMaxHeight;
     }
 
     private void init() {
@@ -155,27 +133,6 @@ public class FloatingCameraWindow {
         });
     }
 
-    public void setFPS(final float fps) {
-        checkInit();
-        mUIHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                checkInit();
-                mRootView.setFPS(fps);
-            }
-        });
-    }
-
-    public void setMoreInformation(final String info) {
-        checkInit();
-        mUIHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                checkInit();
-                mRootView.setMoreInformation(info);
-            }
-        });
-    }
 
     private void checkInit() {
         if (mRootView == null) {
@@ -193,8 +150,6 @@ public class FloatingCameraWindow {
         private int mFirstY;
         private LayoutInflater mLayoutInflater;
         private ImageView mColorView;
-        private TextView mFPSText;
-        private TextView mInfoText;
         private boolean mIsMoving = false;
 
         public FloatCamView(FloatingCameraWindow window) {
@@ -212,10 +167,6 @@ public class FloatingCameraWindow {
 
             View floatView = mLayoutInflater.inflate(R.layout.cam_window_view, body, true);
             mColorView = (ImageView) findViewById(R.id.imageView_c);
-            mFPSText = (TextView) findViewById(R.id.fps_textview);
-            mInfoText = (TextView) findViewById(R.id.info_textview);
-            mFPSText.setVisibility(View.GONE);
-            mInfoText.setVisibility(View.GONE);
 
             int colorMaxWidth = (int) (mWindowWidth* window.mScaleWidthRatio);
             int colorMaxHeight = (int) (mWindowHeight * window.mScaleHeightRatio);
@@ -265,24 +216,6 @@ public class FloatingCameraWindow {
         public void setRGBImageView(Bitmap rgb) {
             if (rgb != null && !rgb.isRecycled()) {
                 mColorView.setImageBitmap(rgb);
-            }
-        }
-
-        public void setFPS(float fps) {
-            if (mFPSText != null) {
-                if (mFPSText.getVisibility() == View.GONE) {
-                    mFPSText.setVisibility(View.VISIBLE);
-                }
-                mFPSText.setText(String.format("FPS: %.2f", fps));
-            }
-        }
-
-        public void setMoreInformation(String info) {
-            if (mInfoText != null) {
-                if (mInfoText.getVisibility() == View.GONE) {
-                    mInfoText.setVisibility(View.VISIBLE);
-                }
-                mInfoText.setText(info);
             }
         }
     }
